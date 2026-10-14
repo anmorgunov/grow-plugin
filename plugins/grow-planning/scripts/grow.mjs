@@ -83,7 +83,10 @@ export async function runCli(
         const capabilities = await services.request({ alias, port, token, path: 'capabilities' })
         const descriptor = capabilities.operations?.find((item) => item.name === operation)
         if (!descriptor) throw new Error('Operation unavailable. Check connection capabilities.')
-        console.log(JSON.stringify(descriptor))
+        console.log(JSON.stringify({
+            ...descriptor,
+            ...(capabilities.pluginUpdate === undefined ? {} : { pluginUpdate: capabilities.pluginUpdate }),
+        }))
         return
     }
     let body

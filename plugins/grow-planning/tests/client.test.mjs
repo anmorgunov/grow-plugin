@@ -1,10 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtemp, readFile, rm, stat, writeFile, chmod, symlink, link, readdir } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile, chmod, symlink, link, readdir, mkdir, copyFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { request } from '../scripts/client.mjs'
+import plugin from '../plugin.json' with { type: 'json' }
 import { recordCommand } from '../scripts/journal.mjs'
 import { connectionOrigin } from '../scripts/credentials.mjs'
 import { readConnectionSelection, resolveConnection, saveConnectionSelection } from '../scripts/connections.mjs'
@@ -31,6 +33,7 @@ void test('read sends only the requested contract and authenticated origin', asy
     const port = await server(t, async (req, res) => {
         assert.equal(req.url, '/api/agent/v1/read')
         assert.equal(req.headers.authorization, 'Bearer fixture-secret')
+        assert.equal(req.headers['x-grow-plugin-version'], plugin.version)
         const chunks = []
         for await (const chunk of req) chunks.push(chunk)
         assert.deepEqual(JSON.parse(Buffer.concat(chunks)), { operation: 'tasks.list', input: { limit: 5 } })
@@ -415,4 +418,85 @@ void test('nested operation names still reject empty segments and non-operation 
     for (const operation of ['projects..propose', 'projects.colors.', '.projects.colors', 'projects/colors', 'projects.colors.Propose']) {
         await assert.rejects(runCli(['read', operation], services), /An operation name is required/)
     }
+})
+
+
+void test('HTTP version comes from the installed manifest rather than a baked-in version', async (t) => {
+    const directory = await privateHome(t)
+    await mkdir(join(directory, 'scripts'))
+    for (const file of ['client.mjs', 'credentials.mjs']) {
+        await copyFile(new URL(`../scripts/${file}`, import.meta.url), join(directory, 'scripts', file))
+    }
+    const fixtureVersion = '7.8.9'
+    await writeFile(join(directory, 'plugin.json'), JSON.stringify({ ...plugin, version: fixtureVersion }))
+    const { request: installedRequest } = await import(pathToFileURL(join(directory, 'scripts', 'client.mjs')))
+    const port = await server(t, (req, res) => {
+        assert.equal(req.headers['x-grow-plugin-version'], fixtureVersion)
+        assert.equal(req.headers.authorization, 'Bearer synthetic-credential')
+        res.end(JSON.stringify({ operations: [] }))
+    })
+    assert.deepEqual(
+        await installedRequest({ alias: 'local', port, token: 'synthetic-credential', path: 'capabilities' }),
+        { operations: [] }
+    )
+})
+
+void test('CLI exposes update advice without changing data, receipts, descriptors or replaying requests', async (t) => {
+    const home = await privateHome(t)
+    const pluginUpdate = {
+        latestVersion: '9.0.0',
+        clientVersion: plugin.version,
+        status: 'update-available',
+        instruction: 'Update the Grow planning plugin from the repository, then retry with the installed plugin version.',
+        repositoryUrl: 'https://github.com/anmorgunov/grow-plugin',
+    }
+    const descriptor = { name: 'tasks.update', kind: 'command', inputSchema: { type: 'object' } }
+    const data = { id: 'task-a', name: 'Read paper' }
+    const input = { id: 'task-a', name: 'Read paper', expectedVersion: '2' }
+    const mutationId = 'original-advisory-command-id'
+    const receipt = { mutationId, operation: descriptor.name, revision: '43' }
+    const received = []
+    const port = await server(t, async (req, res) => {
+        assert.equal(req.headers['x-grow-plugin-version'], plugin.version)
+        assert.equal(req.headers.authorization, 'Bearer synthetic-credential')
+        const chunks = []
+        for await (const chunk of req) chunks.push(chunk)
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks)) : undefined
+        received.push({ path: req.url, body })
+        const result = req.url.endsWith('/capabilities')
+            ? { operations: [descriptor], latestPluginVersion: pluginUpdate.latestVersion, pluginUpdate }
+            : req.url.endsWith('/commands')
+                ? { data, receipt, replayed: true, pluginUpdate }
+                : { data, revision: '42', pluginUpdate }
+        res.end(JSON.stringify(result))
+    })
+    await saveConnectionSelection(localConnection(port), home)
+    const services = { home, loadCredential: () => 'synthetic-credential', request }
+    const filename = join(home, 'input.json')
+    await writeFile(filename, JSON.stringify(input))
+    const output = []
+    const log = console.log
+    console.log = (line) => output.push(JSON.parse(line))
+    try {
+        await runCli(['capabilities'], services)
+        await runCli(['describe', descriptor.name], services)
+        await runCli(['read', 'tasks.list'], services)
+        await runCli(['command', descriptor.name, '--input', filename, '--mutation-id', mutationId], services)
+    } finally {
+        console.log = log
+    }
+    assert.deepEqual(output, [
+        { operations: [{ name: descriptor.name, kind: descriptor.kind }], latestPluginVersion: pluginUpdate.latestVersion, pluginUpdate },
+        { ...descriptor, pluginUpdate },
+        { data, revision: '42', pluginUpdate },
+        { data, receipt, replayed: true, pluginUpdate },
+    ])
+    assert.deepEqual(received, [
+        { path: '/api/agent/v1/capabilities', body: undefined },
+        { path: '/api/agent/v1/capabilities', body: undefined },
+        { path: '/api/agent/v1/read', body: { operation: 'tasks.list', input: {} } },
+        { path: '/api/agent/v1/commands', body: { mutationId, operation: descriptor.name, input } },
+    ])
+    assert.equal((await readConnectionSelection(home)).localPort, port)
+    assert.deepEqual(await readdir(join(home, '.local', 'share', 'grow-planning', 'commands')), [mutationId + '.json'])
 })

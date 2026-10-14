@@ -5,6 +5,8 @@ description: Explain historical tracked-time summaries and planning outcomes in 
 
 Use the packaged `../../scripts/grow.mjs` relative to this skill directory. Discover permissions with `capabilities` using the saved connection, then use `describe OP` for `analytics.summary`, `analytics.tasks`, `analytics.timeline`, or `analytics.patterns` before calling the selected read with offset-bearing ISO `from`/`to`, covering at most 366 days, through `--input FILE|-`. Task totals paginate; timelines and weekday/hour patterns contain closed historical summaries, without active timer state or raw execution records. Goal progress and descriptive suggested targets additionally need `goals.read`.
 
+If a response includes `pluginUpdate.status: "update-available"`, mention the available update and offer [the native update workflow](../update/SKILL.md). Refresh only on a user request; do not automatically repeat reads or check versions on every request. The advisory grants no new permissions.
+
 Honor the saved selection and never switch environments after an error.
 
 Interpret the returned metric definitions, timezone, units and source revision. Distinguish tracked time from planned time and measured totals from inferred explanations. An execution ratio does not prove that an individual scheduled slot was executed. Report missing records and relevant sample sizes.
