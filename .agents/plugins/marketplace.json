@@ -1,0 +1,12 @@
+{
+    "name": "grow",
+    "interface": { "displayName": "Grow" },
+    "plugins": [
+        {
+            "name": "grow-planning",
+            "source": { "source": "local", "path": "./plugins/grow-planning" },
+            "policy": { "installation": "AVAILABLE", "authentication": "ON_USE" },
+            "category": "Productivity"
+        }
+    ]
+}

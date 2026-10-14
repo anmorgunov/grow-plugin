@@ -1,0 +1,27 @@
+# Planning operation discovery
+
+The CLI uses `GET /api/agent/v1/capabilities`, `POST /api/agent/v1/read`, and `POST /api/agent/v1/commands`. Capabilities returns the connection's permitted operation names and read/write kind. The HTTP server owns input validation and coupled permissions.
+
+```sh
+node "$GROW_CLI" capabilities
+node "$GROW_CLI" describe tasks.update
+printf '%s' '{"limit":100}' | node "$GROW_CLI" read tasks.list --input -
+node "$GROW_CLI" command tasks.update --input ./rename.json
+node "$GROW_CLI" command tasks.update --input ./rename.json --mutation-id ORIGINAL_ID
+```
+
+Calls without connection flags use the selection saved by setup or `select`. Explicit `--connection local` uses its remembered port; an explicit port changes one call. Each origin has a separate Keychain item. Never switch environments to recover from an error.
+
+Reads: `categories.list`, `projects.list`, `projects.get`, `projects.review`, `tasks.list`, `tasks.get`, `arcs.list`, `arcs.get`, `schedule.list`, `recurrence.list`, `analytics.summary`. Lists accept bounded pagination (`limit` up to 100, optional cursor) and return `{data:{items,nextCursor},revision}`. `projects.review` requires both planning-read and analytics-read grants. Get calls use `{id}` and return `{data,revision}`. Read only needed pages and fields. Revisions can change across pages.
+
+`tasks.list` accepts `titleSearch`, a literal case-insensitive title substring (at most 200 characters). For recent completions use paired offset-bearing `completedFrom`/`completedTo`; the inclusive/exclusive interval is at most 366 days and implies completed state. Do not combine it with another task state. `projects.review` accepts required `from`/`to` with the same bounded interval and paginated project/category/arc/state filters. It combines current general-task state counts with activity within the requested interval. Read its descriptor for the current returned fields and metric definitions; absence of the operation may mean the analytics grant is missing.
+
+Writes: `projects.create/update`, `tasks.create/update/transition`, `arcs.create/update/add_project/remove_project`, `schedule.create/update/delete/confirm/skip`, and `recurrence.create/update/delete/materialize`. Actual availability depends on the grant. There are no timer or time-entry writes and no project/task/arc delete commands.
+
+`describe OP` returns that permitted operation's server-generated JSON input schema. Read it before constructing an input; operation schemas are owned by the server. Task names use `title`. Update inputs carry `expectedVersion` as a decimal string taken from the latest DTO. Slot updates, including end-only changes, require `expectedTaskVersion` when the slot has a task; arc membership requires `expectedArcVersion`. Do not derive a version from `updatedAt` or the user revision.
+
+Read an arc's members using `projects.list` with `arcId`; arc detail does not embed an unbounded project list. Lists return metadata; `projects.get`, `tasks.get`, and `arcs.get` return descriptions capped at 5000 characters with `descriptionTruncated`. Names/titles are capped at 200 characters, with `nameTruncated`/`titleTruncated`; preserve that indication when explaining legacy records. Exercise session tasks are outside general task planning. Schedule lists explicitly describe persisted slots; they are not a complete recurrence preview.
+
+Command success returns `{data,receipt:{mutationId,operation,revision},replayed}`. `data` contains only the primary resource ID/version/deletion status and `affected` resource IDs/versions. Materialization reports created and deleted slot IDs in `affected` with a null primary ID/version. Private names and descriptions are read separately. A replay is an original committed receipt, not a promise of current resource state. Reread current records after recovery if they matter to the next change. Server conflicts are machine-readable JSON errors and never authorize circumventing the conflict.
+
+Schedule queries use offset-bearing ISO `from`/`to` and at most 31 days. Recurrence is interpreted in the user's timezone, not the agent computer's timezone. Materialization is an explicit write; schedule reads do not persist occurrences. Occurrences retain `recurrenceOccurrenceDate` when moved; `recurrenceOverridden` marks explicit edits. Materialization preserves overrides, confirmations, and skips. Reconciling other tentative occurrences after timezone changes requires `expectedSlotVersions` from the latest schedule read. Read the required week and any moved records before requesting replacements; a missing version conflicts without partial writes. Rule edits preserve overrides; explicit deletion can remove versioned tentative overrides. Establish the user's actual working windows, commitments, capacity, timezone, and priorities before calendar writes when those are missing; every open interval is not automatically working time. Preserve a task's existing deadline when changing its schedule unless the user specifically intends to change the deadline. Confirming a slot creates a new task and requires both schedule-write and task-write permission. Creating or updating a slot while preserving its task deadline needs schedule-write; explicitly synchronizing a task deadline also needs task-write. Linked task versions, ownership, and active-timer guards still apply. Discover the descriptor before constructing these writes.

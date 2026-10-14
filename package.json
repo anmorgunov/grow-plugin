@@ -1,0 +1,11 @@
+{
+  "name": "grow-plugin",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test plugins/grow-planning/tests/client.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
