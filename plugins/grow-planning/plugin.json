@@ -1,8 +1,8 @@
 {
     "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
     "name": "grow-planning",
-    "version": "0.1.1",
-    "description": "Plan Grow projects, tasks, arcs and schedules; analyze historical time without timer control.",
+    "version": "0.2.1",
+    "description": "Plan Grow projects, tasks, arcs, goals, context, study chapters, calendars and exercise settings; analyze historical time without timer control.",
     "extensions": {
         "com.openai": {
             "onboardingSkill": "./skills/setup/SKILL.md"
