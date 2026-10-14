@@ -83,13 +83,16 @@ export async function runCli(
         const capabilities = await services.request({ alias, port, token, path: 'capabilities' })
         const descriptor = capabilities.operations?.find((item) => item.name === operation)
         if (!descriptor) throw new Error('Operation unavailable. Check connection capabilities.')
-        console.log(JSON.stringify(descriptor))
+        console.log(JSON.stringify({
+            ...descriptor,
+            ...(capabilities.pluginUpdate === undefined ? {} : { pluginUpdate: capabilities.pluginUpdate }),
+        }))
         return
     }
     let body
     let mutationId
     if (operation) {
-        if (!/^[a-z]+\.[a-z_]+$/.test(operation))
+        if (!/^[a-z]+(?:\.[a-z_]+)+$/.test(operation))
             throw new Error('An operation name is required. Discover names with capabilities.')
         body = { operation, input: options['--input'] ? await inputJson(options['--input']) : {} }
     } else if (command !== 'capabilities') throw new Error('An operation name is required.')

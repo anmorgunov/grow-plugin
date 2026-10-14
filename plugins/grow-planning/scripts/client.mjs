@@ -1,4 +1,5 @@
 import { connectionOrigin } from './credentials.mjs'
+import plugin from '../plugin.json' with { type: 'json' }
 
 export class GrowError extends Error {
     constructor(code, message, status = null) {
@@ -23,6 +24,7 @@ export async function request({ alias, port = 3000, token, path, body, timeoutMs
                 authorization: `Bearer ${token}`,
                 'content-type': 'application/json',
                 accept: 'application/json',
+                'X-Grow-Plugin-Version': plugin.version,
             },
             body: serialized,
             redirect: 'manual',
