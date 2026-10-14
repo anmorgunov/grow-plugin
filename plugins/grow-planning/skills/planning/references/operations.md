@@ -26,6 +26,44 @@ Command success returns `{data,receipt:{mutationId,operation,revision},replayed}
 
 Schedule queries use offset-bearing ISO `from`/`to` and at most 31 days. Recurrence is interpreted in the user's timezone, not the agent computer's timezone. Materialization is an explicit write; schedule reads do not persist occurrences. Occurrences retain `recurrenceOccurrenceDate` when moved; `recurrenceOverridden` marks explicit edits. Materialization preserves overrides, confirmations, and skips. Reconciling other tentative occurrences after timezone changes requires `expectedSlotVersions` from the latest schedule read. Read the required week and any moved records before requesting replacements; a missing version conflicts without partial writes. Rule edits preserve overrides; explicit deletion can remove versioned tentative overrides. Establish the user's actual working windows, commitments, capacity, timezone, and priorities before calendar writes when those are missing; every open interval is not automatically working time. Preserve a task's existing deadline when changing its schedule unless the user specifically intends to change the deadline. Confirming a slot creates a new task and requires both schedule-write and task-write permission. Creating or updating a slot while preserving its task deadline needs schedule-write; explicitly synchronizing a task deadline also needs task-write. Linked task versions, ownership, and active-timer guards still apply. Discover the descriptor before constructing these writes.
 
+## Project colors
+
+Discover `projects.colors` and `projects.colors.propose` in capabilities, then describe them before choosing a color. Both are static reads requiring `planning.read`; they take no user snapshot, return no sync revision, and perform no writes. Existing read authentication and rate limits still apply. Do not use a color response for a write revision precondition.
+
+`projects.colors` takes `{}`. Its `data.presets` contains 18 choices in picker order, with stable lowercase `id`, display `name`, hex `value`, `requestedOKLCH`, `effectiveOKLCH`, `gamutAdjustment`, and `style`. Favor a discovered preset. Colored presets request chroma 0.20, lightness at least 0.68 (preserving higher original lightness), and their original hue. Neutral stone retains `#64748b`. This is the vivid project palette used by the current dark styling.
+
+`projects.colors.propose` takes exactly one of these strict shapes; no extra properties, CSS strings or numeric coercion:
+
+```json
+{"kind":"preset","presetId":"blue"}
+{"kind":"styled-hue","h":259.8}
+{"kind":"oklch","l":0.72,"c":0.16,"h":259.8}
+```
+
+Choose the preset ID from the catalog. For a user-requested custom hue with the default style, `styled-hue` uses L=0.68 and C=0.20. Full `oklch` permits custom values outside that style: finite numeric lightness `l` in [0,1], chroma `c` in [0,0.5], and hue `h` in [0,360) degrees. Do not force a user's custom OKLCH request into the default style.
+
+The deterministic proposal returns `{data:{value,requestedOKLCH,effectiveOKLCH,gamutAdjustment,style}}`. Mapping into sRGB reduces only chroma, preserving lightness and hue; `gamutAdjustment` reports `method:"reduce-chroma"`, `adjusted`, and `chromaReduction`. `effectiveOKLCH` describes the continuous mapped color before hex quantization. The returned `value` rounds sRGB channels to nearest bytes, so decoding that hex need not reproduce the effective coordinates exactly. Report a gamut adjustment when relevant to the user's choice; use the returned hex rather than performing a separate local conversion.
+
+```sh
+node "$GROW_CLI" describe projects.colors
+node "$GROW_CLI" describe projects.colors.propose
+printf '%s' '{}' | node "$GROW_CLI" read projects.colors --input -
+printf '%s' '{"kind":"preset","presetId":"blue"}' | node "$GROW_CLI" read projects.colors.propose --input - > ./color-proposal.json
+# Alternative proposal inputs for user-requested custom colors:
+printf '%s' '{"kind":"styled-hue","h":259.8}' | node "$GROW_CLI" read projects.colors.propose --input -
+printf '%s' '{"kind":"oklch","l":0.72,"c":0.16,"h":259.8}' | node "$GROW_CLI" read projects.colors.propose --input -
+```
+
+For an authorized write, describe `projects.create` or `projects.update` and put the selected proposal's `data.value` in its existing `color` string field. These writes require `projects.write`; color discovery grants no write authority. For example, prepare a create input from the saved proposal (replace the name and category ID with the intended project name and an owned ID from `categories.list`), then send it through the usual journaled command path:
+
+```sh
+node "$GROW_CLI" describe projects.create
+node --input-type=module -e 'import { readFileSync } from "node:fs"; const { data } = JSON.parse(readFileSync("./color-proposal.json", "utf8")); console.log(JSON.stringify({ name: "Research", categoryId: "CATEGORY_ID_FROM_CATEGORIES_LIST", color: data.value }));' > ./create-project.json
+node "$GROW_CLI" command projects.create --input ./create-project.json
+```
+
+For update, first read the current project and include its `id` and latest `expectedVersion` along with the color; preserve unrelated fields. Structured OKLCH is not a create/update input. Existing custom `#RRGGBB` callers remain supported, and valid custom hex renders in its own color. Discovery does not recolor existing projects. Omitted create color uses storage default `#6B7280`; omitted update preserves the stored color. The catalog's `pickerDefaultValue` is the UI's initial choice, while `renderingFallbackValue` (`#78716c`) is for missing or invalid colors. Arcs and goals have no independent color input; category display colors are separate.
+
 ## Product context and reflection
 
 Project create/update accepts `contextPrompt`, `promptOnOutcome`, and `promptOnLearning`; arc create/update accepts `contextPrompt`. Their existing domain grants apply. Task details include `outcome` and `learnings`; task update can edit those fields with task-write permission. `tasks.complete` requires `tasks.transition`; supplying either `outcome` or `learnings` additionally requires `tasks.write`, including explicit null or empty strings. Completion with both reflection fields omitted needs only the transition grant and preserves stored reflections. These grants also apply after reopening a task and on receipt replay. Capabilities advertises unconditional grants separately from field-presence `conditionalCapabilities`. Agent reflection writes do not enqueue built-in AI extraction. Human completion retains its product follow-up policy. Reflection edits on an already-completed task require task-write; completion permission does not grant arbitrary reflection edits.

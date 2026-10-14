@@ -370,3 +370,49 @@ void test('concurrent selections publish complete private metadata and leave no 
     assert.ok([3020, 3030].includes((await readConnectionSelection(home)).localPort))
     assert.deepEqual(await readdir(join(home, '.local', 'share', 'grow-planning')), ['connection.json'])
 })
+
+void test('color discovery and nested proposals stay on the read path without command journals', async (t) => {
+    const home = await privateHome(t)
+    await saveConnectionSelection(localConnection(3020), home)
+    const requests = []
+    const descriptor = { name: 'projects.colors.propose', kind: 'read', inputSchema: { type: 'object' } }
+    const services = {
+        home,
+        loadCredential: () => 'synthetic-credential',
+        request: async (request) => {
+            requests.push(request)
+            return request.path === 'capabilities' ? { operations: [descriptor] } : { data: {} }
+        },
+    }
+    await runCli(['describe', 'projects.colors.propose'], services)
+    await runCli(['read', 'projects.colors'], services)
+    const inputs = [
+        { kind: 'preset', presetId: 'blue' },
+        { kind: 'styled-hue', h: 259.8 },
+        { kind: 'oklch', l: 0.4, c: 0.1, h: 259.8 },
+    ]
+    const filename = join(home, 'proposal.json')
+    for (const input of inputs) {
+        await writeFile(filename, JSON.stringify(input))
+        await runCli(['read', 'projects.colors.propose', '--input', filename], services)
+    }
+    assert.equal(requests[0].path, 'capabilities')
+    assert.deepEqual(requests.slice(1).map(({ path, body }) => ({ path, body })), [
+        { path: 'read', body: { operation: 'projects.colors', input: {} } },
+        ...inputs.map((input) => ({ path: 'read', body: { operation: 'projects.colors.propose', input } })),
+    ])
+    assert.deepEqual(await readdir(join(home, '.local', 'share', 'grow-planning')), ['connection.json'])
+})
+
+void test('nested operation names still reject empty segments and non-operation syntax before HTTP', async (t) => {
+    const home = await privateHome(t)
+    await saveConnectionSelection(localConnection(3020), home)
+    const services = {
+        home,
+        loadCredential: () => 'synthetic-credential',
+        request: () => assert.fail('Malformed operation must not reach HTTP'),
+    }
+    for (const operation of ['projects..propose', 'projects.colors.', '.projects.colors', 'projects/colors', 'projects.colors.Propose']) {
+        await assert.rejects(runCli(['read', operation], services), /An operation name is required/)
+    }
+})

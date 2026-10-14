@@ -89,7 +89,7 @@ export async function runCli(
     let body
     let mutationId
     if (operation) {
-        if (!/^[a-z]+\.[a-z_]+$/.test(operation))
+        if (!/^[a-z]+(?:\.[a-z_]+)+$/.test(operation))
             throw new Error('An operation name is required. Discover names with capabilities.')
         body = { operation, input: options['--input'] ? await inputJson(options['--input']) : {} }
     } else if (command !== 'capabilities') throw new Error('An operation name is required.')
