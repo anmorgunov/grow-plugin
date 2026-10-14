@@ -3,7 +3,7 @@ name: grow-analytics
 description: Explain historical tracked-time summaries and planning outcomes in Grow using bounded read-only analytics.
 ---
 
-Use the packaged `../../scripts/grow.mjs` relative to this skill directory. Discover permissions with `capabilities` using the saved connection, then call `read analytics.summary` with offset-bearing ISO `from`/`to`, covering at most 366 days, through `--input FILE|-`.
+Use the packaged `../../scripts/grow.mjs` relative to this skill directory. Discover permissions with `capabilities` using the saved connection, then use `describe OP` for `analytics.summary`, `analytics.tasks`, `analytics.timeline`, or `analytics.patterns` before calling the selected read with offset-bearing ISO `from`/`to`, covering at most 366 days, through `--input FILE|-`. Task totals paginate; timelines and weekday/hour patterns contain closed historical summaries, without active timer state or raw execution records. Goal progress and descriptive suggested targets additionally need `goals.read`.
 
 Honor the saved selection and never switch environments after an error.
 
